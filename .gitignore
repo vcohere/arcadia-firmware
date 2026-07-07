@@ -1,0 +1,22 @@
+# ESP-IDF build output
+build/
+managed_components/
+dependencies.lock
+
+# ESP-IDF / CMake cache
+.cache/
+
+# Generated sdkconfig backups (sdkconfig itself is kept for reproducible builds)
+sdkconfig.old
+
+# Python
+__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,20 @@
+# WLtoys 6401 prototype firmware — default sdkconfig
+#
+# Target: ESP32-S3.
+# Console/logging goes over USB-Serial-JTAG so the diagnostics UART (see
+# PROTOCOL_ANALYSIS.md / IMPLEMENTATION_PLAN.md §10) never touches GPIO4,
+# which is dedicated to the car's yellow signal wire via UART1.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# Boot log noise reduction, keep only info-and-above by default.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# The default 100 Hz tick (10 ms resolution) truncates pdMS_TO_TICKS(5) to 0,
+# which crashes vTaskDelayUntil in buttons_poll_task (5 ms poll interval,
+# buttons.h BUTTONS_POLL_INTERVAL_MS). 1000 Hz gives 1 ms resolution so the
+# 5 ms poll, 50 ms control loop, and 500 ms startup window all convert exactly.
+CONFIG_FREERTOS_HZ=1000
