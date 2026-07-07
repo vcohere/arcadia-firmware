@@ -1,0 +1,5 @@
+## Managed component dependencies for the main component.
+## esp32-camera provides esp_camera.h and the OV2640/OV3660 driver used by
+## camera.c. Pulled from the ESP Component Registry at build time.
+dependencies:
+  espressif/esp32-camera: "^2.0.0"

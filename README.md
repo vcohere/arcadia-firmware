@@ -1,14 +1,23 @@
-# WLtoys 6401 Direct-Drive Firmware (ESP32-S3)
+# WLtoys 6401 Direct-Drive Firmware (XIAO ESP32-S3 Sense)
 
 ## 1. What it does
 
-This is prototype ESP32-S3 firmware that replaces the WiFi/camera module in a
-WLtoys 6401 1:64 FPV car and drives it directly, using four push buttons
-(Forward, Reverse, Left, Right), over the car's internal signal wire.
+This is prototype firmware for a **Seeed Studio XIAO ESP32-S3 Sense** that
+replaces the WiFi/camera module in a WLtoys 6401 1:64 FPV car and drives it
+directly over the car's internal signal wire. Control is now **network-only**:
+the board joins your 2.4 GHz WiFi, streams its onboard camera over the LAN, and
+takes discrete steer/throttle commands over a WebSocket. The four physical
+push buttons of the earlier revision have been removed.
+
+The network stream + control contract (for a separate webapp) is documented in
+[`NETWORK_API.md`](NETWORK_API.md). There is **no authentication** — the device
+is meant to live on a trusted LAN.
 
 ## 2. Supported model
 
-WLtoys 6401 Mini RC Car, 1:64 scale, FPV variant.
+WLtoys 6401 Mini RC Car, 1:64 scale, FPV variant. Firmware target board is the
+Seeed Studio XIAO ESP32-S3 Sense (ESP32-S3R8, 8 MB octal PSRAM, 8 MB flash,
+onboard OV2640/OV3660 camera).
 
 ## 3. Reverse-engineering background
 
@@ -60,46 +69,49 @@ somewhere between the app and the yellow wire (see
 
 ## 5. Pin assignment
 
-| Function               | GPIO  |
-|-------------------------|-------|
-| Signal out (UART1 TX)   | GPIO4 |
-| Forward button          | GPIO5 |
-| Reverse button          | GPIO6 |
-| Left button             | GPIO7 |
-| Right button            | GPIO8 |
-| Ground                  | GND (shared) |
+Only two connections to the car are needed — the signal wire and a shared
+ground. Everything else (WiFi, camera) is internal to the XIAO board.
+
+| Function               | GPIO  | XIAO pad |
+|-------------------------|-------|----------|
+| Signal out (UART1 TX)   | GPIO4 | D3 |
+| Ground                  | GND   | GND (shared) |
+
+The onboard camera uses internal-only GPIOs that are **not** broken out to
+pads (XCLK=10, PCLK=13, D0–D7=15/14/16/17/18/11/12, D8=48, VSYNC=38, HREF=47,
+SIOD=40, SIOC=39), and none collide with GPIO4. GPIO5–8 (the old button pins)
+are no longer used.
 
 ## 6. Wiring table
 
 | From              | To                          | Notes |
 |-------------------|-----------------------------|-------|
-| ESP32-S3 GPIO4    | Car yellow signal wire      | Through a level check / shifter if required — see §9 |
-| ESP32-S3 GPIO5    | Forward button, one leg     | Other leg to GND |
-| ESP32-S3 GPIO6    | Reverse button, one leg     | Other leg to GND |
-| ESP32-S3 GPIO7    | Left button, one leg        | Other leg to GND |
-| ESP32-S3 GPIO8    | Right button, one leg       | Other leg to GND |
-| ESP32-S3 GND      | Car controller GND          | Common ground, required |
+| XIAO GPIO4 (D3)   | Car yellow signal wire      | Through a level check / shifter if required — see §9 |
+| XIAO GND          | Car controller GND          | Common ground, required |
 
 ## 7. Simple wiring diagram
 
 ```
-                 +------------------------+
-                 |       ESP32-S3         |
-                 |                        |
-  Forward btn ---| GPIO5              GPIO4|--- (level check!) --- car yellow wire
-  Reverse  btn ---| GPIO6                  |
-  Left     btn ---| GPIO7                  |
-  Right    btn ---| GPIO8                  |
-                 |                    GND |--- shared GND --- car controller GND
-                 +------------------------+
-     (each button's other leg -> shared GND)
+                 +-------------------------+
+                 |   XIAO ESP32-S3 Sense   |
+                 |                         |
+                 | GPIO4 (D3) |--- (level check!) --- car yellow wire
+                 |                         |
+                 |        GND |--- shared GND --- car controller GND
+                 +-------------------------+
+       (onboard camera + WiFi; no external buttons)
 ```
 
-## 8. Button wiring
+## 8. Control (network)
 
-Each button has one leg wired to its GPIO (5/6/7/8) and the other leg to
-shared GND. Firmware enables the internal pull-up on each pin, so the pin
-reads HIGH when not pressed and LOW when pressed (active-low).
+Control is over WiFi — there is no button wiring. The board joins the network
+set in [`main/config.h`](main/config.h) (`WIFI_SSID` / `WIFI_PASSWORD`) and
+serves a WebSocket control endpoint, an MJPEG camera stream, and a built-in
+test page. Open `http://<ip>/` in a browser for the built-in UI, or drive it
+from a separate app per [`NETWORK_API.md`](NETWORK_API.md). Commands are
+discrete (`steer` = left/center/right, `throttle` = forward/neutral/reverse),
+mapping to the verified capture bytes. A **400 ms failsafe** returns the car to
+neutral if command frames stop arriving.
 
 ## 9. Car signal wiring
 
@@ -118,17 +130,26 @@ reads HIGH when not pressed and LOW when pressed (active-low).
   drive the line at the same time as the ESP32, and add a level shifter if
   the car runs 5 V logic. Full checklist in §14 and
   [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) §8.
-- **Power the ESP32-S3 from its own supply** (USB/battery) with GND shared to
-  the car, until the car's onboard regulator's current capacity has been
-  verified — Wi-Fi/radio current transients can brown out the ESP32 if
-  powered from an undersized rail.
+- **Power the XIAO from its own supply** (USB/battery) with GND shared to the
+  car. This matters more than before: WiFi **and** the camera now draw current
+  transients that can brown out the board if powered from an undersized rail
+  (e.g. the car's own regulator). Do not power the board from the car until
+  that rail's current capacity has been verified.
 
 ## 10. Build prerequisites
 
 - ESP-IDF v5.x installed and exported (`. $HOME/esp/esp-idf/export.sh` or
   equivalent).
-- USB cable to the ESP32-S3's USB port (console runs over USB-Serial-JTAG).
+- USB cable to the XIAO's USB-C port (console runs over USB-Serial-JTAG).
 - `idf.py` on `PATH`.
+- Internet access on first build — the `espressif/esp32-camera` managed
+  component is fetched from the ESP Component Registry (see
+  `main/idf_component.yml`).
+
+The board-specific config (8 MB flash, octal PSRAM for camera framebuffers,
+the custom `partitions.csv` giving the app 3 MB, and HTTP WebSocket support) is
+in `sdkconfig.defaults` — no manual `menuconfig` needed. Set your WiFi SSID and
+password in [`main/config.h`](main/config.h) before building.
 
 ## 11. How to build
 
@@ -165,38 +186,44 @@ stages:
    captures with `tools/analyze_captures.py` — byte-identical expected.
 3. **Stage C:** connect to the car with wheels lifted off the ground,
    Idle only. Motors must not move.
-4. **Stage D:** momentary single-direction presses, wheels still lifted.
-5. **Stage E:** combined directions and conflict cases, wheels still lifted.
+4. **Stage D:** single-direction commands over `ws://<ip>/control`, wheels
+   still lifted (one axis at a time).
+5. **Stage E:** combined-axis commands (e.g. `steer:left throttle:forward`)
+   and the failsafe (stop sending → car returns to neutral within ~400 ms),
+   wheels still lifted.
 
 Only run the car on the ground after Stage E passes.
 
 ## 15. Expected behavior
 
-| Input state        | STEER  | THR    |
-|---------------------|--------|--------|
-| No buttons (Idle)   | 0x80   | 0x80   |
-| Forward             | 0x80   | 0xFF   |
-| Reverse             | 0x80   | 0x00   |
-| Left                | 0x59   | 0x80   |
-| Right               | 0xA6   | 0x80   |
-| Forward + Left      | 0x59   | 0xFF   |
-| Forward + Right     | 0xA6   | 0xFF   |
-| Reverse + Left      | 0x59   | 0x00   |
-| Reverse + Right     | 0xA6   | 0x00   |
-| Forward + Reverse   | 0x80   | 0x80 (neutral throttle) |
-| Left + Right        | 0x80   | — (neutral steering) |
+Steer and throttle are set independently by the WebSocket command (see
+[`NETWORK_API.md`](NETWORK_API.md)):
 
-The first ~500 ms after boot always transmits Idle regardless of button
-state (startup neutral window). After that, a press changes the payload of
-the *next* periodic frame — the wire keeps emitting at a steady 50 ms.
+| Command                                   | STEER  | THR    |
+|-------------------------------------------|--------|--------|
+| `steer:center throttle:neutral` (Idle)    | 0x80   | 0x80   |
+| `steer:center throttle:forward`           | 0x80   | 0xFF   |
+| `steer:center throttle:reverse`           | 0x80   | 0x00   |
+| `steer:left   throttle:neutral`           | 0x59   | 0x80   |
+| `steer:right  throttle:neutral`           | 0xA6   | 0x80   |
+| `steer:left   throttle:forward`           | 0x59   | 0xFF   |
+| `steer:right  throttle:forward`           | 0xA6   | 0xFF   |
+
+The first ~1 s after boot always transmits Idle regardless of network input
+(startup neutral window), and the ~5 s HIGH hold precedes even that. After
+that, a command changes the payload of the *next* periodic frame — the wire
+keeps emitting at a steady 50 ms. If no command arrives within **400 ms** the
+firmware reverts to Idle (failsafe).
 
 ## 16. Troubleshooting
 
 | Symptom | Likely cause |
 |---------|--------------|
-| No motion at all | Check level compatibility/ground/original-module isolation (§9) |
-| Reversed direction | Check button-to-GPIO mapping (§5) and STEER/THR polarity |
-| Jitter / erratic motion | Check debounce, loose wiring, or bus contention with the original module |
+| No motion at all | Check level compatibility/ground/original-module isolation (§9); confirm WS commands arrive (`/status` `ws_active:true`) |
+| Reversed direction | Check STEER/THR polarity and the command→byte mapping (NETWORK_API.md §3) |
+| Jitter / erratic motion | Check loose wiring, WiFi dropouts (failsafe re-triggering), or bus contention with the original module |
+| Not on the network | Wrong `WIFI_SSID`/`WIFI_PASSWORD` in `main/config.h`, or not a 2.4 GHz network |
+| No video | Camera init failed (`/status` `camera:false`); needs octal PSRAM enabled (§10) |
 | Wrong idle level on scope | GPIO4 not latched HIGH before UART init, or external pull-up missing/wrong rail |
 | Framing errors on logic analyzer | Wrong baud/inversion config, or bus contention |
 | Car cuts out / failsafe trips | Frame cadence stalled — verify the 50 ms control loop is still running |
