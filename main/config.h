@@ -8,7 +8,7 @@
 
 // --- WiFi station credentials (2.4 GHz network) ---------------------------
 #define WIFI_SSID     "@Wyne438_2.4G"
-#define WIFI_PASSWORD "Val438vvv"
+#define WIFI_PASSWORD "Val438vv"
 
 // --- Camera ---------------------------------------------------------------
 // FRAMESIZE_VGA = 640x480. Drop to FRAMESIZE_QVGA (320x240) for lower latency
