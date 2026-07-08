@@ -17,8 +17,23 @@ I (nnnn) wifi: connected, IP address: 192.168.1.42
 
 Read that IP from the serial monitor (`idf.py -p <port> monitor`) or your
 router's DHCP lease table. All endpoints below are relative to that address.
-There is no mDNS/discovery service; assign the board a DHCP reservation if you
-want a stable address.
+
+### mDNS discovery
+
+The board also advertises itself over mDNS so controllers (e.g. the
+`prototype-raspberry` relay) can find cars without hardcoded IPs:
+
+- **Service**: `_arcadia-car._tcp`, port 80 (the control/API server).
+- **Instance name / hostname**: `arcadia-car-<last-3-MAC-bytes-hex>` (e.g.
+  `arcadia-car-a1b2c3`). This string is the car's stable **car_id** — relay
+  allowlists, logs, and metrics key on it. It is derived from the STA MAC, so
+  it survives reflashes.
+- **TXT records**: `version` (wire-contract version, currently `1`) and
+  `capture_port` (the snapshot server port, currently `81`).
+
+Browse it with `dns-sd -B _arcadia-car._tcp` (macOS) or
+`avahi-browse -r _arcadia-car._tcp` (Linux). See
+[`main/mdns_adv.c`](main/mdns_adv.c).
 
 ## 2. Endpoint summary
 

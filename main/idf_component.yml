@@ -3,3 +3,6 @@
 ## camera.c. Pulled from the ESP Component Registry at build time.
 dependencies:
   espressif/esp32-camera: "^2.0.0"
+  ## mdns advertises _arcadia-car._tcp on the LAN so the relay can discover
+  ## cars without hardcoded IPs. Used by mdns_adv.c.
+  espressif/mdns: "^1.0.0"

@@ -240,6 +240,11 @@ firmware reverts to Idle (failsafe).
 - No RX/telemetry: the firmware only transmits; it does not read.
 - The car's failsafe/keep-alive timeout (how long it tolerates a pause in
   frames) is unknown.
+- TODO: make the car's LED "ready" state meaningful for operations. The car
+  changes LED color when UART frames arrive, but the firmware transmits from
+  boot, so the LEDs currently mean "board booted", not "controller connected".
+  Gating UART output on an active controller (e.g. the relay's idle keepalive)
+  would turn the LEDs into a real ready-to-drive indicator.
 
 ## 18. Remaining unverified assumptions
 

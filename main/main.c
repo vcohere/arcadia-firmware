@@ -31,6 +31,7 @@
 #include "protocol.h"
 #include "command.h"
 #include "wifi_sta.h"
+#include "mdns_adv.h"
 #include "camera.h"
 #include "web_server.h"
 
@@ -209,6 +210,7 @@ void app_main(void) {
     // frames. A camera failure is non-fatal: the device stays reachable for
     // control and /status reports camera:false.
     wifi_sta_start();
+    mdns_adv_start();
     if (camera_init() != ESP_OK) {
         ESP_LOGW(TAG, "camera init failed; continuing without video");
     }
