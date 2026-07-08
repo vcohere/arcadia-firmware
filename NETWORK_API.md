@@ -24,14 +24,15 @@ want a stable address.
 
 | Purpose        | Method | URL                          | Notes |
 |----------------|--------|------------------------------|-------|
-| Test page      | GET    | `http://<ip>/`               | Built-in HTML UI (stream + touch controls) |
+| Test page      | GET    | `http://<ip>/`               | Built-in HTML UI (video + touch controls) |
 | **Control**    | WS     | `ws://<ip>/control`          | Send JSON command frames |
-| Snapshot       | GET    | `http://<ip>/capture`        | Single JPEG |
+| **Video**      | GET    | `http://<ip>:81/capture`     | Single JPEG; poll in a loop for video |
 | Status         | GET    | `http://<ip>/status`         | JSON device state |
-| **Video**      | GET    | `http://<ip>:81/stream`      | MJPEG (`multipart/x-mixed-replace`) |
 
-Control/API endpoints are on **port 80**; the long-lived video stream is on a
-**separate server on port 81** so streaming never starves control.
+Control/API endpoints (`/`, `/control`, `/status`) are on **port 80**; the
+camera snapshot (`/capture`) is on a **separate server on port 81** so a ~25 KB
+blocking JPEG send never occupies the control server's single worker while a
+WS control frame waits.
 
 ## 3. Control — WebSocket `ws://<ip>/control`
 
@@ -84,31 +85,44 @@ ws.onopen = () => setInterval(() => {
 //   up   -> cmd = { steer: "center", throttle: "neutral" };
 ```
 
-## 4. Video — `http://<ip>:81/stream`
+## 4. Video — `http://<ip>:81/capture`
 
-An MJPEG stream (`multipart/x-mixed-replace; boundary=frame`). Usable directly
-as an `<img>` source — no JS decoding needed:
-
-```html
-<img src="http://192.168.1.42:81/stream" alt="car camera">
-```
-
-Frame size and JPEG quality come from `main/config.h` (`CAM_FRAME_SIZE`,
-`CAM_JPEG_QUALITY`); default is 640×480. Only one or two simultaneous stream
-clients are practical on this hardware. The stream sets
-`Access-Control-Allow-Origin: *`.
-
-## 5. Snapshot — `http://<ip>/capture`
-
-Returns a single `image/jpeg` frame. Returns HTTP 500 if the camera failed to
-initialize.
+Video is **client-pull**, not a push stream: each request to `/capture`
+returns one `image/jpeg` frame (HTTP 500 if the camera failed to initialize).
+Fetch it in a loop — fetch, render, fetch again — and you get a self-clocked
+video feed:
 
 ```js
-const img = new Image();
-img.src = `http://${host}/capture?t=${Date.now()}`; // cache-bust
+async function playLoop(imgEl, host) {
+  while (true) {
+    const res = await fetch(`http://${host}:81/capture?t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) {
+      const url = URL.createObjectURL(await res.blob());
+      imgEl.src = url;
+      URL.revokeObjectURL(imgEl.dataset.prevUrl || "");
+      imgEl.dataset.prevUrl = url;
+    } else {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+}
 ```
 
-## 6. Status — `http://<ip>/status`
+Why pull instead of push: an MJPEG push stream produces frames at a fixed
+rate regardless of what the WiFi link can deliver, so when throughput dips
+TCP queues and retransmits instead of dropping — every queued byte becomes
+display latency, and the backlog never drains because production never
+slows. With client-pull, exactly one frame is ever in flight: latency is
+bounded at roughly one RTT plus one frame transfer, and link congestion
+degrades fps instead of building up lag.
+
+Frame size and JPEG quality come from `main/config.h` (`CAM_FRAME_SIZE`,
+`CAM_JPEG_QUALITY`); default is 640×480. There's no server-side fps cap — the
+pull loop self-paces to whatever the link and camera can sustain. Only one or
+two simultaneous callers are practical on this hardware. `/capture` sets
+`Access-Control-Allow-Origin: *`.
+
+## 5. Status — `http://<ip>/status`
 
 Returns JSON device state:
 
@@ -134,7 +148,7 @@ const s = await (await fetch(`http://${host}/status`)).json();
 console.log(s.ip, s.ws_active, s.camera);
 ```
 
-## 7. Quick manual test (no webapp)
+## 6. Quick manual test (no webapp)
 
 - Open `http://<ip>/` for the built-in page (live video + touch/click D-pad).
 - Or from a browser console / `wscat`:

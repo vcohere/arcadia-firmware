@@ -4,7 +4,7 @@
 //
 // The two WiFi lines below are the ones you normally touch; everything else is
 // a tunable with a sensible default. See NETWORK_API.md for how the control
-// and stream endpoints behave.
+// and video endpoints behave.
 
 // --- WiFi station credentials (2.4 GHz network) ---------------------------
 #define WIFI_SSID     "@Wyne438_2.4G"
@@ -15,6 +15,10 @@
 // on a congested link. Valid values come from esp_camera.h (sensor.h).
 #define CAM_FRAME_SIZE   FRAMESIZE_VGA
 // JPEG quality: lower number = higher quality + bigger frames (0..63).
+// Video is delivered client-pull (fetch /capture, render, fetch again), so a
+// slow link just costs fps, not latency -- no fps cap needed here. Drop
+// CAM_FRAME_SIZE or raise CAM_JPEG_QUALITY (bigger number = smaller frames) if
+// a given link can't sustain a usable fps at VGA/q12.
 #define CAM_JPEG_QUALITY 12
 
 // --- Control failsafe -----------------------------------------------------
@@ -23,9 +27,10 @@
 // stalls. Keep comfortably above the webapp's send cadence (~10 Hz).
 #define CONTROL_FAILSAFE_MS 400
 
-// --- HTTP servers ---------------------------------------------------------
+// --- HTTP servers -----------------------------------------------------
 // Port 80 hosts the control API + WebSocket + test page; port 81 hosts the
-// long-lived MJPEG stream on its own server instance so streaming never
-// starves control (the standard ESP32 CameraWebServer split).
+// camera snapshot (/capture) on its own server instance so a ~25 KB blocking
+// JPEG send never occupies the control server's single worker while a WS
+// control frame waits (the standard ESP32 CameraWebServer split).
 #define HTTP_PORT   80
 #define STREAM_PORT 81

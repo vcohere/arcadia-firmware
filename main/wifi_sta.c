@@ -71,6 +71,12 @@ void wifi_sta_start(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // Disable modem power save (default WIFI_PS_MIN_MODEM). With power save
+    // on, the radio naps between DTIM beacons and packets queue at the AP,
+    // adding 100-300 ms bursts to control latency and throttling the stream.
+    // Latency > power for a mains-adjacent RC car.
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+
     ESP_LOGI(TAG, "connecting to SSID \"%s\"", WIFI_SSID);
 }
 

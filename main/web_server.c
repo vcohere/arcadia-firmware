@@ -16,11 +16,11 @@
 
 static const char *TAG = "web";
 
-// Two independent server handles. Splitting the stream onto its own instance
-// (STREAM_PORT) keeps a long-lived MJPEG connection from occupying the single
+// Two independent server handles. Splitting /capture onto its own instance
+// (STREAM_PORT) keeps a ~25 KB blocking JPEG send from occupying the single
 // worker of the control server and starving /control and /status.
 static httpd_handle_t s_http = NULL;   // port 80: control/API
-static httpd_handle_t s_stream = NULL; // port 81: MJPEG stream
+static httpd_handle_t s_camera = NULL; // port 81: camera snapshot
 
 // Two-step stringify so STREAM_PORT's numeric value (not the macro name) lands
 // in the served HTML.
@@ -28,12 +28,14 @@ static httpd_handle_t s_stream = NULL; // port 81: MJPEG stream
 #define STRINGIFY(x) STRINGIFY_(x)
 
 // --- Built-in test page ---------------------------------------------------
-// Minimal so the board is usable before the separate webapp exists: shows the
-// MJPEG stream and drives /control over the WebSocket with a ~10 Hz repeat
-// while a direction is held (pointer down), snapping back to neutral on
-// release -- matching the failsafe-friendly cadence documented in
-// NETWORK_API.md. Kept as a single static string, no external assets (the CSP
-// on this device is nonexistent but the page must work offline on the LAN).
+// Minimal so the board is usable before the separate webapp exists: shows a
+// self-clocked snapshot loop (fetch /capture, render, fetch again -- bounds
+// latency to one frame instead of letting a push stream's backlog build up)
+// and drives /control over the WebSocket with a ~10 Hz repeat while a
+// direction is held (pointer down), snapping back to neutral on release --
+// matching the failsafe-friendly cadence documented in NETWORK_API.md. Kept
+// as a single static string, no external assets (the CSP on this device is
+// nonexistent but the page must work offline on the LAN).
 static const char INDEX_HTML[] =
 "<!doctype html><html><head><meta charset=utf-8>"
 "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
@@ -47,7 +49,7 @@ static const char INDEX_HTML[] =
 ".sp{visibility:hidden}"
 "</style></head><body>"
 "<h3>WLtoys 6401</h3>"
-"<img id=v src=''><div id=pad>"
+"<img id=v><div id=pad>"
 "<span class=sp></span><button data-s=center data-t=forward>Fwd</button><span class=sp></span>"
 "<button data-s=left data-t=neutral>Left</button>"
 "<button data-s=center data-t=neutral>Stop</button>"
@@ -56,7 +58,10 @@ static const char INDEX_HTML[] =
 "</div><div id=s>connecting...</div>"
 "<script>"
 "var host=location.hostname;"
-"document.getElementById('v').src='http://'+host+':' + " STRINGIFY(STREAM_PORT) " + '/stream';"
+"var img=document.getElementById('v');"
+"function nextFrame(){img.src='http://'+host+':' + " STRINGIFY(STREAM_PORT) " + '/capture?t='+Date.now();}"
+"img.onload=nextFrame;img.onerror=function(){setTimeout(nextFrame,500);};"
+"nextFrame();"
 "var ws,cur={steer:'center',throttle:'neutral'},timer;"
 "function send(){if(ws&&ws.readyState==1)ws.send(JSON.stringify(cur));}"
 "function connect(){ws=new WebSocket('ws://'+host+'/control');"
@@ -151,6 +156,7 @@ static esp_err_t capture_handler(httpd_req_t *req) {
     }
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     esp_err_t ret = httpd_resp_send(req, (const char *)fb->buf, fb->len);
     camera_return(fb);
     return ret;
@@ -186,53 +192,15 @@ static esp_err_t status_handler(httpd_req_t *req) {
     (void)n;
 
     httpd_resp_set_type(req, "application/json");
-    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
-}
-
-// MJPEG multipart stream. Loops grabbing frames and writing multipart parts on
-// one long-lived connection, on its own server instance so control stays
-// responsive. Exits (freeing the worker) as soon as a chunk send fails, which
-// is how a client disconnect surfaces.
-#define STREAM_CONTENT_TYPE "multipart/x-mixed-replace;boundary=frame"
-#define STREAM_BOUNDARY "\r\n--frame\r\n"
-#define STREAM_PART "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n"
-
-static esp_err_t stream_handler(httpd_req_t *req) {
-    esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
-    if (res != ESP_OK) {
-        return res;
-    }
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    char part_buf[64];
-    while (true) {
-        camera_fb_t *fb = camera_capture();
-        if (fb == NULL) {
-            res = ESP_FAIL;
-            break;
-        }
-
-        res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
-        if (res == ESP_OK) {
-            int hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, (unsigned)fb->len);
-            res = httpd_resp_send_chunk(req, part_buf, hlen);
-        }
-        if (res == ESP_OK) {
-            res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
-        }
-        camera_return(fb);
-        if (res != ESP_OK) {
-            break;
-        }
-    }
-    return res;
+    return httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
 }
 
 void web_server_start(void) {
     // --- Control/API server on HTTP_PORT ---
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = HTTP_PORT;
-    cfg.ctrl_port = 32080; // distinct from the stream server's ctrl socket
+    cfg.ctrl_port = 32080; // distinct from the camera server's ctrl socket
     cfg.lru_purge_enable = true;
 
     if (httpd_start(&s_http, &cfg) == ESP_OK) {
@@ -241,28 +209,28 @@ void web_server_start(void) {
             .uri = "/control", .method = HTTP_GET, .handler = control_ws_handler,
             .is_websocket = true,
         };
-        httpd_uri_t capture_uri = { .uri = "/capture", .method = HTTP_GET, .handler = capture_handler };
         httpd_uri_t status_uri = { .uri = "/status", .method = HTTP_GET, .handler = status_handler };
         httpd_register_uri_handler(s_http, &index_uri);
         httpd_register_uri_handler(s_http, &control_uri);
-        httpd_register_uri_handler(s_http, &capture_uri);
         httpd_register_uri_handler(s_http, &status_uri);
         ESP_LOGI(TAG, "control/API server on port %d", HTTP_PORT);
     } else {
         ESP_LOGE(TAG, "failed to start control server");
     }
 
-    // --- Stream server on STREAM_PORT ---
+    // --- Camera snapshot server on STREAM_PORT ---
+    // A ~25 KB blocking JPEG send must never occupy the control server's
+    // single worker while a WS control frame waits, so /capture lives here.
     httpd_config_t scfg = HTTPD_DEFAULT_CONFIG();
     scfg.server_port = STREAM_PORT;
     scfg.ctrl_port = 32081;
     scfg.lru_purge_enable = true;
 
-    if (httpd_start(&s_stream, &scfg) == ESP_OK) {
-        httpd_uri_t stream_uri = { .uri = "/stream", .method = HTTP_GET, .handler = stream_handler };
-        httpd_register_uri_handler(s_stream, &stream_uri);
-        ESP_LOGI(TAG, "stream server on port %d", STREAM_PORT);
+    if (httpd_start(&s_camera, &scfg) == ESP_OK) {
+        httpd_uri_t capture_uri = { .uri = "/capture", .method = HTTP_GET, .handler = capture_handler };
+        httpd_register_uri_handler(s_camera, &capture_uri);
+        ESP_LOGI(TAG, "camera server on port %d", STREAM_PORT);
     } else {
-        ESP_LOGE(TAG, "failed to start stream server");
+        ESP_LOGE(TAG, "failed to start camera server");
     }
 }

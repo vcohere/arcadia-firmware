@@ -55,7 +55,9 @@ esp_err_t camera_init(void) {
         .jpeg_quality = CAM_JPEG_QUALITY,
         .fb_count = 2,
         .fb_location = CAMERA_FB_IN_PSRAM,
-        .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+        // GRAB_LATEST drops stale buffered frames so the stream shows the
+        // newest frame after a link hiccup instead of lagging permanently.
+        .grab_mode = CAMERA_GRAB_LATEST,
     };
 
     esp_err_t err = esp_camera_init(&cfg);

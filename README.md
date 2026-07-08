@@ -106,7 +106,7 @@ are no longer used.
 
 Control is over WiFi — there is no button wiring. The board joins the network
 set in [`main/config.h`](main/config.h) (`WIFI_SSID` / `WIFI_PASSWORD`) and
-serves a WebSocket control endpoint, an MJPEG camera stream, and a built-in
+serves a WebSocket control endpoint, a pull-based camera snapshot endpoint, and a built-in
 test page. Open `http://<ip>/` in a browser for the built-in UI, or drive it
 from a separate app per [`NETWORK_API.md`](NETWORK_API.md). Commands are
 discrete (`steer` = left/center/right, `throttle` = forward/neutral/reverse),
