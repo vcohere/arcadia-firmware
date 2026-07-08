@@ -13,7 +13,7 @@
 // --- Camera ---------------------------------------------------------------
 // FRAMESIZE_VGA = 640x480. Drop to FRAMESIZE_QVGA (320x240) for lower latency
 // on a congested link. Valid values come from esp_camera.h (sensor.h).
-#define CAM_FRAME_SIZE   FRAMESIZE_VGA
+#define CAM_FRAME_SIZE   FRAMESIZE_QVGA
 // JPEG quality: lower number = higher quality + bigger frames (0..63).
 #define CAM_JPEG_QUALITY 12
 
@@ -21,7 +21,7 @@
 // If no fresh WebSocket command arrives within this window, command_get()
 // returns neutral so the car coasts to a stop when the webapp disconnects or
 // stalls. Keep comfortably above the webapp's send cadence (~10 Hz).
-#define CONTROL_FAILSAFE_MS 400
+#define CONTROL_FAILSAFE_MS 800
 
 // --- HTTP servers ---------------------------------------------------------
 // Port 80 hosts the control API + WebSocket + test page; port 81 hosts the

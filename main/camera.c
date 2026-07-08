@@ -55,7 +55,7 @@ esp_err_t camera_init(void) {
         .jpeg_quality = CAM_JPEG_QUALITY,
         .fb_count = 2,
         .fb_location = CAMERA_FB_IN_PSRAM,
-        .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+        .grab_mode = CAMERA_GRAB_LATEST,
     };
 
     esp_err_t err = esp_camera_init(&cfg);
